@@ -5,9 +5,9 @@ import multiprocessing
 
 import dill
 
-dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
-multiprocessing.reduction.ForkingPickler = dill.Pickler
-multiprocessing.reduction.dump = dill.dump
+# dill.Pickler.dumps, dill.Pickler.loads = dill.dumps, dill.loads
+# multiprocessing.reduction.ForkingPickler = dill.Pickler
+# multiprocessing.reduction.dump = dill.dump
 
 import asyncio  # noqa: E402  #pylint: disable=wrong-import-position
 import concurrent.futures  # noqa: E402  #pylint: disable=wrong-import-position
