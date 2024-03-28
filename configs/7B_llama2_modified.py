@@ -43,8 +43,10 @@ ckpt = dict(
     oss_snapshot_freq=int(CHECKPOINT_EVERY / 2),  # snapshot ckpt save frequency.
 )
 
-TRAIN_FOLDER = "/mnt/cache/share_data/PAT/datasets/lm_data/data/alpaca.bin/train"  # "/path/to/dataset"
-VALID_FOLDER = "/mnt/cache/share_data/PAT/datasets/lm_data/data/alpaca.bin/valid"  # "/path/to/dataset"
+TRAIN_FOLDER = None
+VALID_FOLDER = None
+# TRAIN_FOLDER = "/mnt/cache/share_data/PAT/datasets/lm_data/data/alpaca.bin/train"  # "/path/to/dataset"
+# VALID_FOLDER = "/mnt/cache/share_data/PAT/datasets/lm_data/data/alpaca.bin/valid"  # "/path/to/dataset"
 data = dict(
     seq_len=SEQ_LEN,
     # micro_num means the number of micro_batch contained in one gradient update

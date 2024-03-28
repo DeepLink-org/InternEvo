@@ -467,6 +467,8 @@ def launch(
     Raises:
         Exception: Raise exception when config type is wrong
     """
+    print('---------------------------------set_device------------------, local_rank=', local_rank)
+    torch.cuda.set_device(local_rank)
 
     # set config
     assert isinstance(
