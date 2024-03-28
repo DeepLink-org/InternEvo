@@ -6,8 +6,11 @@ import time
 import traceback
 from functools import partial
 
+import os
 import torch
 import torch_dipu
+local_rank = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(local_rank)
 import torch.distributed as dist
 
 import internlm
