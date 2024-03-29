@@ -15,6 +15,7 @@ from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
 from internlm.utils.common import SchedulerHook
+import os
 
 
 @dataclass
@@ -24,7 +25,12 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    device: torch.device = internlm_accelerator.device()
+    if 'LOCAL_RANK' in os.environ:
+        local_rank = int(os.environ["LOCAL_RANK"])
+    else :
+        local_rank = None
+    print(f'set device {local_rank}')
+    device: torch.device = internlm_accelerator.device(local_rank)
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 
