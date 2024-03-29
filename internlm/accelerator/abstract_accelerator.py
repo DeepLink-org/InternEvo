@@ -9,7 +9,8 @@ class AcceleratorType(enum.Enum):
     GPU = 1
     NPU = 2
     CPU = 3
-    OTHER = 4
+    DIPU = 4
+    OTHER = 5
 
 
 internlm_accelerator = None
@@ -80,7 +81,7 @@ def get_accelerator():
 
     accelerator_name = None
     # 1. Detect whether there is override of DeepSpeed accelerators from environment variable.
-    intern_accelerator_LIST = ["cuda", "npu"]
+    intern_accelerator_LIST = ["cuda", "npu", "dipu"]
     if "INTERNLM_ACCELERATOR" in os.environ:
         accelerator_name = os.environ["INTERNLM_ACCELERATOR"]
         if accelerator_name == "npu":
@@ -89,6 +90,13 @@ def get_accelerator():
             except (ImportError, ModuleNotFoundError):
                 raise ValueError("NPU_Accelerator requires torch_npu, which is not installed on this system.")
             pass
+        elif accelerator_name == "dipu":
+            try:
+                import torch_dipu  # noqa # pylint: disable=W0611
+                import deeplink_ext
+            except (ImportError, ModuleNotFoundError):
+                raise ValueError("DIPU_Accelerator requires torch_dipu and deeplink_ext, which is not installed on this system.")
+            pass
         elif accelerator_name != "cuda":
             raise ValueError(
                 f"accelerator_name must be one of {intern_accelerator_LIST}."
@@ -96,6 +104,13 @@ def get_accelerator():
             )
 
     # 2. If no override, detect which accelerator to use automatically
+    if accelerator_name is None:
+        try:
+            import torch_dipu  # noqa: F401,F811 # type: ignore
+            import deeplink_ext
+            accelerator_name = "dipu"
+        except (ImportError, ModuleNotFoundError):
+            pass
     if accelerator_name is None:
         try:
             import torch_npu  # noqa: F401,F811 # type: ignore
@@ -115,5 +130,9 @@ def get_accelerator():
         from .npu_accelerator import ASCEND_Accelerator
 
         internlm_accelerator = ASCEND_Accelerator()
+    elif accelerator_name == "dipu":
+        from .dipu_accelerator import DIPU_Accelerator
+
+        internlm_accelerator = DIPU_Accelerator()
 
     return internlm_accelerator

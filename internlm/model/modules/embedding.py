@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor, nn
 
-from internlm.accelerator import get_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
@@ -96,7 +96,28 @@ def _torch_apply_rotary_func(
 
 def get_rotary_func():
     if gpc.config.use_cuda_flash_attn:
-        return rotary_emb.apply_rotary
+        # device_backend = internlm_accelerator.get_accelerator_backend()
+        # if device_backend == AcceleratorType.DIPU:
+        #     from deeplink_ext.cpp_extensions import apply_rotary as apply_rotary
+        #     def _dipu_apply_rotary_func(
+        #         x1: torch.Tensor,
+        #         x2: torch.Tensor,
+        #         cos: torch.Tensor,
+        #         sin: torch.Tensor,
+        #         out1: torch.Tensor,
+        #         out2: torch.Tensor,
+        #         conj: bool = False,
+        #     ):
+        #         assert x1.device == x2.device == cos.device == sin.device, "All inputs must be on the same device"
+        #         assert x1.dtype == x2.dtype == cos.dtype == sin.dtype, "All inputs must have the same dtype"
+        #         assert x1.size() == x2.size(), "Input x1 and x2 must have the same sizes"
+        #         assert cos.size() == sin.size(), "Input cos and sin must have the same sizes"
+        #         apply_rotary(out1, x1, cos, sin, conj)
+        #         apply_rotary(out2, x2, cos, sin, conj)
+        #         return out1, out2
+        #     return _dipu_apply_rotary_func
+        # else:
+            return rotary_emb.apply_rotary
     else:
         return _torch_apply_rotary_func
 
@@ -169,8 +190,11 @@ class ApplyRotaryEmb(torch.autograd.Function):
             dx[..., rotary_dim:].copy_(do[..., rotary_dim:])
         return dx, None, None, None, None
 
-
-apply_rotary_emb = ApplyRotaryEmb.apply
+if AcceleratorType.DIPU == get_accelerator().get_accelerator_backend():
+    from deeplink_ext.internlm_ops.rotary.deeplink import DeeplinkApplyRotaryEmb
+    apply_rotary_emb = DeeplinkApplyRotaryEmb.apply
+else:
+    apply_rotary_emb = ApplyRotaryEmb.apply
 
 
 class ApplyRotaryEmbQKV_(torch.autograd.Function):
@@ -252,8 +276,11 @@ class ApplyRotaryEmbQKV_(torch.autograd.Function):
 
         return dqkv, None, None, None, None, None
 
-
-apply_rotary_emb_qkv_ = ApplyRotaryEmbQKV_.apply
+if AcceleratorType.DIPU == get_accelerator().get_accelerator_backend():
+    from deeplink_ext.internlm_ops.rotary.deeplink import DeeplinkApplyRotaryEmbQKV_
+    apply_rotary_emb_qkv_ = DeeplinkApplyRotaryEmbQKV_.apply
+else:
+    apply_rotary_emb_qkv_ = ApplyRotaryEmbQKV_.apply
 
 
 class RotaryEmbedding(torch.nn.Module):

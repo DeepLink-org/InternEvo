@@ -303,7 +303,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         internlm_adamw = torch_npu.optim.NpuFusedAdamW
     else:
         internlm_adamw = torch.optim.AdamW
-        if torch.__version__ >= "2.1.0":
+        if torch.__version__ >= "2.1.0" and False:
             adam_extra_kwargs["fused"] = True
 
     naive_optimizer = internlm_adamw(

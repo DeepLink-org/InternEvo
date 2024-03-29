@@ -90,7 +90,7 @@ class AccPerplex:
 
         self.loss_with_type_id = LossWithTypeId(device, dp_pg, dataset_types)
 
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             self.scatter_sum = cuda_scatter
         else:
             self.scatter_sum = vanilla_scatter
@@ -262,7 +262,7 @@ class LossWithTypeId:
             self.ds_loss = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
             self.ds_token_num = torch.zeros(self.total_type_count, dtype=torch.float, device=device)
 
-        if gpc.config.use_cuda_flash_attn:
+        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator():
             from flash_attn.losses.cross_entropy import (
                 CrossEntropyLoss as FlashCrossEntropyLoss,
             )
@@ -273,7 +273,7 @@ class LossWithTypeId:
         else:
             self.loss_fn = nn.CrossEntropyLoss(reduction="none")
 
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             self.scatter_sum = cuda_scatter
         else:
             self.scatter_sum = vanilla_scatter

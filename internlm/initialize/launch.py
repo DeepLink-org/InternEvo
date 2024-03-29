@@ -323,7 +323,7 @@ def args_sanity_check():
         gpc.config.model._add_item("use_flash_attn", True)
 
     gpc.config["use_cuda_flash_attn"] = False
-    if gpc.config.model.use_flash_attn and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+    if gpc.config.model.use_flash_attn and (internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]):
         gpc.config["use_cuda_flash_attn"] = True
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
