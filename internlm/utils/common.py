@@ -95,6 +95,22 @@ def get_tensor_norm(norm: Union[float, torch.Tensor], move_to_cuda) -> torch.Ten
     return norm
 
 
+def init_device() -> torch.device:
+    """
+    Returns currently selected device (gpu/cpu).
+    If cuda available, return gpu, otherwise return cpu.
+    """
+    if internlm_accelerator.is_available():
+        if 'LOCAL_RANK' in os.environ:
+            local_rank = int(os.environ["LOCAL_RANK"])
+        else :
+            local_rank = None
+        print(f'set device {local_rank}')
+        return internlm_accelerator.set_device(local_rank)
+    else:
+        return torch.device("cpu")
+
+
 def get_current_device() -> torch.device:
     """
     Returns currently selected device (gpu/cpu).

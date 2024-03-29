@@ -6,10 +6,14 @@ import time
 import traceback
 from functools import partial
 
+import os
+import torch
+import torch_dipu
 import torch.distributed as dist
 
 import deeplink_ext.patch_internlm
 import internlm
+import deeplink_ext.patch_internlm
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc

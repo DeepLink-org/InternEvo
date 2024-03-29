@@ -13,7 +13,7 @@ from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
-from internlm.utils.common import SchedulerHook, get_current_device
+from internlm.utils.common import SchedulerHook, init_device
 
 
 @dataclass
@@ -23,7 +23,7 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    device: torch.device = get_current_device()
+    device: torch.device = init_device()
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 
