@@ -10,7 +10,7 @@ import torch.distributed as dist
 from tqdm import tqdm
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -18,14 +18,16 @@ from internlm.data import (
     build_train_loader_with_data_type,
     build_valid_loader_with_data_type,
 )
-from internlm.eval.evaluation import switch_evaluation_no_pipeline_scheduler
+from internlm.eval.evaluation import switch_evaluation_mode
 from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import initialize_model, initialize_optimizer
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 TOTAL_STEPS = 300
 config = Config(
@@ -118,6 +120,7 @@ config = Config(
             label_smoothing=0,
         ),
         cudnn_deterministic=True,
+        use_cuda_flash_attn=True,
     )
 )
 
@@ -163,7 +166,7 @@ def evaluate_on_val_dls(
             continue
 
         val_metric = AccPerplex(
-            device=internlm_accelerator.current_device(),
+            device=get_current_device(),
             tp_pg=gpc.get_group(ParallelMode.TENSOR),
             dp_pg=gpc.get_group(ParallelMode.DATA),
         )
@@ -182,12 +185,7 @@ def evaluate_on_val_dls(
             with torch.inference_mode():
                 total_val_bsz = len(batch[1])
                 assert total_val_bsz % data_cfg.micro_bsz == 0
-                grad_accum_size = total_val_bsz // data_cfg.micro_bsz
-                with switch_evaluation_no_pipeline_scheduler(
-                    trainer=trainer,
-                    grad_accum_size=grad_accum_size,
-                    metric_hook_list=[val_sche_metric_hook],
-                ):
+                with switch_evaluation_mode(trainer=trainer, metric_hook_list=[val_sche_metric_hook]):
                     _, _, loss = trainer.execute_schedule(
                         batch, forward_only=True, return_loss=True, return_output_label=False
                     )
@@ -281,7 +279,7 @@ def exam_loss(args):
 
     # initialize metric for calculating accuracy and perplexity
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

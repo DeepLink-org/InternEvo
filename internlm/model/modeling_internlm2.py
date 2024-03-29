@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.initialize.initialize_tensor import (
@@ -23,10 +23,8 @@ from internlm.model.modules.embedding import (
 )
 from internlm.model.modules.mlp import get_mlp_cls
 from internlm.model.modules.multi_head_attention import (
-    CrossAttention,
-    DistributedAttention,
-    SelfAttention,
     _update_kv_cache,
+    get_gqa_attn_cls,
 )
 from internlm.model.ops.linear import (
     RewardModelLinear,
@@ -48,6 +46,7 @@ MODEL_TYPE = "INTERNLM2_PUBLIC"
 
 logger = get_logger(__file__)
 RMSNorm = try_import_RMSNorm()
+internlm_accelerator = get_accelerator()
 
 
 class MHA(nn.Module):
@@ -152,24 +151,12 @@ class MHA(nn.Module):
             **factory_kwargs,
         )
 
-        if use_flash_attn:
-            from flash_attn import flash_attn_varlen_kvpacked_func
-            from flash_attn.modules.mha import FlashCrossAttention, FlashSelfAttention
-
-        inner_attn_cls = FlashSelfAttention if use_flash_attn else SelfAttention
-        inner_cross_attn_cls = FlashCrossAttention if use_flash_attn else CrossAttention
-        self.inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
-        self.inner_cross_attn = inner_cross_attn_cls(
-            causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout
+        self.inner_attn, self.inner_cross_attn = get_gqa_attn_cls(
+            use_flash_attn, self.tp_mode, causal, softmax_scale, dropout, sequence_process_group
         )
-
         self.inner_cross_attn_causal = causal
         self.inner_cross_attn_softmax_scale = softmax_scale
         self.inner_cross_attn_dropout = dropout
-
-        self.attn = flash_attn_varlen_kvpacked_func if use_flash_attn else SelfAttention
-        if self.tp_mode == "isp":
-            self.attn = DistributedAttention(self.attn, sequence_process_group=sequence_process_group)
 
         wo_cls = get_linear_cls(self.tp_mode, "row")
         self.wo = wo_cls(
@@ -222,9 +209,9 @@ class MHA(nn.Module):
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                    context = self.inner_cross_attn(q, kv).to(self.dtype)
+                    context = self.inner_cross_attn(q=q, kv=kv).to(self.dtype)
             else:
-                context = self.inner_cross_attn(q, kv)
+                context = self.inner_cross_attn(q=q, kv=kv)
 
         else:
             assert self.rotary_emb_dim > 0
@@ -298,7 +285,7 @@ class MHA(nn.Module):
             kv = torch.where(torch.isnan(kv), 0, kv)
 
             if hasattr(inference_params, "attention_mask") and inference_params.attention_mask is not None:
-                assert self.use_flash_attn is True
+                assert gpc.config.use_cuda_flash_attn is True
                 from flash_attn import flash_attn_varlen_kvpacked_func
 
                 if inference_params.sequence_len_offset == 0:  # First entrance, attnmask (bs*seqlen*seqlen)
@@ -388,9 +375,9 @@ class MHA(nn.Module):
                     if kv.dtype not in [torch.float16, torch.bfloat16]:
                         kv = kv.to(torch.bfloat16)
                     with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                        context = self.inner_cross_attn(q, kv, causal=True).to(self.dtype)
+                        context = self.inner_cross_attn(q=q, kv=kv, causal=True).to(self.dtype)
                 else:
-                    context = self.inner_cross_attn(q, kv, causal=True)
+                    context = self.inner_cross_attn(q=q, kv=kv, causal=True)
 
         if seqlen is None:
             context = rearrange(context, "b s h d -> b s (h d)")
@@ -412,11 +399,11 @@ class MHA(nn.Module):
 
         qkv = self.wqkv(x)
 
-        qkv = rearrange(qkv, "t (h gs d) -> t h gs d", gs=self.q_per_kv + 2, d=self.head_dim)
+        qkv = rearrange(qkv, "b t (h gs d) -> b t h gs d", gs=self.q_per_kv + 2, d=self.head_dim)
 
         q, k, v = (qkv[..., : self.q_per_kv, :], qkv[..., -2, :], qkv[..., -1, :])
 
-        q = rearrange(q, "t h gs d -> t (h gs) d")
+        q = rearrange(q, "b t h gs d -> b t (h gs) d")
 
         # qkv shift
         # the rotary embedding in flash attention module in performed by separating the front and back parts, while
@@ -430,14 +417,19 @@ class MHA(nn.Module):
         k = self.rotary_emb._single_forward(k, indexes=indexes)
 
         if inference_params is None:
-            kv = torch.concat([k.unsqueeze(1), v.unsqueeze(1)], dim=1)
+            kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
+            # for packed data, batch dimension with a size of 1 should be directly squeezed off.
+            if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+                q = q.squeeze(0)
+                kv = kv.squeeze(0)
+
             if self.dtype is torch.float32:
                 if q.dtype not in [torch.float16, torch.bfloat16]:
                     q = q.to(torch.bfloat16)
                 if kv.dtype not in [torch.float16, torch.bfloat16]:
                     kv = kv.to(torch.bfloat16)
                 with internlm_accelerator.amp.autocast(dtype=torch.bfloat16):
-                    context = self.attn(
+                    context = self.inner_attn(
                         q=q,
                         kv=kv,
                         cu_seqlens_q=kwargs["cu_seqlens"],
@@ -449,7 +441,7 @@ class MHA(nn.Module):
                         causal=self.inner_cross_attn_causal,
                     ).to(self.dtype)
             else:
-                context = self.attn(
+                context = self.inner_attn(
                     q=q,
                     kv=kv,
                     cu_seqlens_q=kwargs["cu_seqlens"],
@@ -464,6 +456,10 @@ class MHA(nn.Module):
             raise RuntimeError("Not support this right now")
 
         context = rearrange(context, "b h d -> b (h d)")  # recover shape
+        # restore bsz dimension
+        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            context = context.unsqueeze(0)
+
         out = self.wo(context)
         return out
 
@@ -582,7 +578,7 @@ class PackedFlashLlamaLayer1D(nn.Module):
         else:
             self.attention_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
             self.ffn_norm = nn.LayerNorm(hidden_size, eps=layer_norm_epsilon)
-        if self.fused_dropout_add_ln and self.use_flash_attn:
+        if self.fused_dropout_add_ln and gpc.config.use_cuda_flash_attn:
             from flash_attn.ops.layer_norm import dropout_add_layer_norm
 
             assert dropout_add_layer_norm is not None, "dropout_add_ln is not installed"
@@ -967,8 +963,6 @@ class PackedFlashLlama1D(nn.Module):
 
         if cu_seqlens is not None:
             cu_seqlens = cu_seqlens.squeeze(0)
-            hidden_states = hidden_states.squeeze(0)  # If cu_seqlens is passed in，it indicated a packed state，
-            # the batch dimension with a size of 1 should be directly squeezed off.
 
         if indexes is not None:
             assert len(indexes) == 1
@@ -993,11 +987,7 @@ class PackedFlashLlama1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "output"):
-            # Evaluation
-            if gpc.is_evaluating is True:
-                hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
-            else:  # Training
-                hidden_states = self.output(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
+            hidden_states = self.output(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
 
         if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

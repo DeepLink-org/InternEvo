@@ -1,10 +1,9 @@
 import multiprocessing as mp
 
 import pytest
-import torch
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.data import build_train_loader_with_data_type
@@ -21,11 +20,13 @@ from tests.common_fixture import (
     build_environment,
     config_7B,
     find_free_port,
+    get_current_device,
     load_new_batch,
     seed_all,
 )
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 # init config
 config = config_7B
@@ -63,7 +64,7 @@ def train_check(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

@@ -127,6 +127,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                 dtype=dtype,
             )
         else:
+            assert gpc.config.use_cuda_flash_attn is True
             from flash_attn.modules.mlp import ParallelFusedMLP
 
             self.mlp = ParallelFusedMLP(
@@ -309,7 +310,7 @@ class PackedFlashInternLm1D(nn.Module):
         else:
             head_cls = ScaleColumnParallelLinear
         if first:
-            if embed_split_hidden or not use_flash_attn:
+            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings
@@ -383,14 +384,13 @@ class PackedFlashInternLm1D(nn.Module):
                 hidden_states = (
                     self.embed_grad_scale * hidden_states + (1 - self.embed_grad_scale) * hidden_states.detach()
                 )
+
         if isinstance(cu_seqlens, list):
             assert len(cu_seqlens) == 1
             cu_seqlens = cu_seqlens[0].to(hidden_states.device)
 
         if cu_seqlens is not None:
             cu_seqlens = cu_seqlens.squeeze(0)
-            hidden_states = hidden_states.squeeze(0)  # If cu_seqlens is passed in，it indicated a packed state，
-            # the batch dimension with a size of 1 should be directly squeezed off.
 
         if indexes is not None:
             assert len(indexes) == 1
@@ -414,11 +414,7 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "head"):
-            # Evaluation
-            if hidden_states.ndim == 3:
-                hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
-            else:  # Training
-                hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
+            hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
 
         if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)

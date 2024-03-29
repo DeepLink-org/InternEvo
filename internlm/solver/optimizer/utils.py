@@ -10,7 +10,7 @@ import torch.distributed as dist
 from torch import Tensor
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.utils.common import get_current_device, get_tensor_norm, move_norm_to_cuda
@@ -25,6 +25,7 @@ from internlm.utils.parallel import (
 )
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 try:
     import amp_C
@@ -68,17 +69,14 @@ def get_grad_accumulate_object(tensor):
 
 
 def split_half_float_double(tensor_list):
-    dtype_buckets = {
-        "internlm_accelerator.HalfTensor": [],
-        "internlm_accelerator.FloatTensor": [],
-        "internlm_accelerator.DoubleTensor": [],
-        "internlm_accelerator.BFloat16Tensor": [],
-    }
+    dtype_buckets = {}
 
     for t in tensor_list:
         dtype = t.type()
-        if dtype in dtype_buckets:
-            dtype_buckets[dtype].append(t)
+        if dtype not in dtype_buckets:
+            dtype_buckets[dtype] = []
+
+        dtype_buckets[dtype].append(t)
 
     buckets = [bucket for bucket in dtype_buckets.values() if bucket]
     return buckets
@@ -194,7 +192,7 @@ def calc_l2_norm(grads):
     norm = 0.0
     if len(grads) > 0:
         if APEX_AVAILABLE:
-            dummy_overflow_buf = internlm_accelerator.IntTensor([0])
+            dummy_overflow_buf = torch.tensor([0], device=get_current_device(), dtype=torch.int32)
             norm, _ = multi_tensor_applier(
                 amp_C.multi_tensor_l2norm,
                 dummy_overflow_buf,
@@ -284,7 +282,7 @@ def compute_norm(gradients, parameters, norm_type=2, zero_mode=ParallelMode.ZERO
     # Calculate norm.
     if norm_type == inf:
         total_norm = max(g.data.abs().max() for g in gradients)
-        total_norm_cuda = torch.FloatTensor([float(total_norm)], device=gradients[0].device)
+        total_norm_cuda = torch.tensor([float(total_norm)], device=gradients[0].device, dtype=torch.float32)
 
         # Take max across all model-parallel GPUs.
         if is_tensor_data_parallel_parameter(parameters[0]):
@@ -389,7 +387,7 @@ class BaseGradScaler(ABC):
 
     def __init__(self, initial_scale: float):
         assert initial_scale > 0
-        self._scale = internlm_accelerator.FloatTensor([initial_scale])
+        self._scale = torch.tensor([initial_scale], device=get_current_device(), dtype=torch.float32)
 
     @property
     def scale(self) -> Tensor:
@@ -455,12 +453,12 @@ class DynamicGradScaler(BaseGradScaler):
     ):
         super().__init__(initial_scale)
         if min_scale:
-            self._min_scale = internlm_accelerator.FloatTensor([min_scale])
+            self._min_scale = torch.tensor([min_scale], device=get_current_device(), dtype=torch.float32)
         else:
             self._min_scale = None
 
         if max_scale:
-            self._max_scale = internlm_accelerator.FloatTensor([max_scale])
+            self._max_scale = torch.tensor([max_scale], device=get_current_device(), dtype=torch.float32)
         else:
             self._max_scale = None
 

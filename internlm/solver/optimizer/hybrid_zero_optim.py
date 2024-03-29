@@ -10,7 +10,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context import Config, ParallelMode
 from internlm.core.context import global_context as gpc
@@ -49,6 +49,7 @@ from .utils import compute_norm
 
 inf = math.inf
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 class HybridZeroOptimizer(BaseOptimizer):
@@ -118,7 +119,7 @@ class HybridZeroOptimizer(BaseOptimizer):
             hysteresis=hysteresis,
             max_scale=max_scale,
         )
-        self._found_overflow = internlm_accelerator.FloatTensor([0], device=get_current_device())
+        self._found_overflow = torch.tensor([0], device=get_current_device(), dtype=torch.float32)
 
         # gradient clipping
         self._clip_grad_norm = clip_grad_norm

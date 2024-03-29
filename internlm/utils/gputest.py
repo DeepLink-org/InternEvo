@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 from torch.utils import benchmark
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.model.modules.multi_head_attention import SelfAttention
 from internlm.monitor import send_alert_message
 from internlm.utils.common import get_current_device
@@ -26,6 +26,7 @@ from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 # Gloabl cuda cache flush counter
@@ -46,7 +47,7 @@ def empty_cache_and_diag(batch_count, interval=50):
                 logger.info("Empty Cache and Diagnosis GPU/NCCL/Timer ...")
             with torch.no_grad():
                 timer_diagnosis()
-                bench_gpu(gpc.config.model.use_flash_attn)
+                bench_gpu(gpc.config.use_cuda_flash_attn)
                 # FIXME: Runtime benchmark diagnosis can easily cause the training process
                 # to exit due to NCCL errors.
                 # bench_net()
@@ -89,7 +90,7 @@ def flops(batch, seqlen, headdim, nheads, time_f):
 def get_gpu_temperature():
     """Get current GPU temperature."""
     try:
-        gpu_id = internlm_accelerator.current_device()
+        gpu_id = internlm_accelerator.get_device_id()
     except AssertionError:
         gpu_id = -1
 

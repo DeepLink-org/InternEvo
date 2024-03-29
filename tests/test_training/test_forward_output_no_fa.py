@@ -8,7 +8,7 @@ import pytest
 import torch
 
 import internlm
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context import global_context as gpc
 from internlm.core.context.parallel_context import Config
@@ -17,9 +17,11 @@ from internlm.initialize.launch import args_sanity_check
 from internlm.model.losses import FlashGPTLMLoss
 from internlm.model.metrics import AccPerplex, SchedulerMetricHook
 from internlm.train import initialize_model, initialize_optimizer
+from internlm.utils.common import get_current_device
 from internlm.utils.logger import get_logger
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 TOTAL_STEPS = 1
 config = Config(
@@ -42,6 +44,7 @@ config = Config(
             valid_every=300,
             rampup_batch_size=None,
             diag_outlier_ratio=1.1,
+            use_packed_dataset=False,
         ),
         model=dict(
             checkpoint=True,
@@ -107,6 +110,7 @@ config = Config(
         loss=dict(
             label_smoothing=0,
         ),
+        use_cuda_flash_attn=True,
     )
 )
 
@@ -172,7 +176,7 @@ def train_check_output(args):
     train_dl, dataset_types = build_train_loader_with_data_type()
 
     metric = AccPerplex(
-        device=internlm_accelerator.current_device(),
+        device=get_current_device(),
         tp_pg=gpc.get_group(ParallelMode.TENSOR),
         dp_pg=gpc.get_group(ParallelMode.DATA),
         dataset_types=dataset_types,

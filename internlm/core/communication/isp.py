@@ -9,13 +9,11 @@ import torch
 from torch import distributed as dist
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.core.naive_amp import NaiveAMPModel
 from internlm.model.ops.linear import ISPLinear
 from internlm.model.utils import all_gather_raw, reduce_scatter_raw
-from internlm.utils.common import SchedulerHook
-import os
+from internlm.utils.common import SchedulerHook, init_device
 
 
 @dataclass
@@ -25,12 +23,7 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    if 'LOCAL_RANK' in os.environ:
-        local_rank = int(os.environ["LOCAL_RANK"])
-    else :
-        local_rank = None
-    print(f'set device {local_rank}')
-    device: torch.device = internlm_accelerator.device(local_rank)
+    device: torch.device = init_device()
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
 

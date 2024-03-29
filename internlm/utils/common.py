@@ -14,11 +14,12 @@ import numpy as np
 import torch
 
 import internlm
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.utils.logger import get_logger
 
 CURRENT_TIME = None
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def parse_args():
@@ -50,20 +51,20 @@ def _move_tensor(element):
         for idx, item in enumerate(element):
             if isinstance(item, dict):
                 for key, value in item.items():
-                    assert not value.is_cuda, "elements are already on devices."
+                    assert value.device.type == "cpu"
                     item[key] = value.to(get_current_device()).detach()
             elif isinstance(item, list):
                 for index, value in enumerate(item):
-                    assert not value.is_cuda, "elements are already on devices."
+                    assert value.device.type == "cpu"
                     item[index] = value.to(get_current_device()).detach()
             elif torch.is_tensor(item):
-                if not item.is_cuda:
+                if item.device.type == "cpu":
                     element[idx] = item.to(get_current_device()).detach()
             else:
                 assert False, f"{type(item)}, {item}"
     else:
         assert torch.is_tensor(element), f"element should be of type tensor, but got {type(element)}"
-        if not element.is_cuda:
+        if element.device.type == "cpu":
             element = element.to(get_current_device()).detach()
     return element
 
@@ -92,6 +93,22 @@ def get_tensor_norm(norm: Union[float, torch.Tensor], move_to_cuda) -> torch.Ten
     if move_to_cuda:
         norm = norm.to(get_current_device())
     return norm
+
+
+def init_device() -> torch.device:
+    """
+    Returns currently selected device (gpu/cpu).
+    If cuda available, return gpu, otherwise return cpu.
+    """
+    if internlm_accelerator.is_available():
+        if 'LOCAL_RANK' in os.environ:
+            local_rank = int(os.environ["LOCAL_RANK"])
+        else :
+            local_rank = None
+        print(f'set device {local_rank}')
+        return internlm_accelerator.set_device(local_rank)
+    else:
+        return torch.device("cpu")
 
 
 def get_current_device() -> torch.device:

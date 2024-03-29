@@ -42,19 +42,13 @@ class Accelerator:
         """
         raise NotImplementedError
 
-    def device(self, device_index=None):
-        """
-        Return the device object.
-        """
-        raise NotImplementedError
-
     def set_device(self, device_index):
         """
         Bind the current process to a device.
         """
         raise NotImplementedError
 
-    def current_device(self):
+    def get_device_id(self):
         """
         Return the current device index.
         """
@@ -95,23 +89,22 @@ def get_accelerator():
             except (ImportError, ModuleNotFoundError):
                 raise ValueError("NPU_Accelerator requires torch_npu, which is not installed on this system.")
             pass
-        else:
+        elif accelerator_name != "cuda":
             raise ValueError(
-                f"internlm_accelerator must be one of {intern_accelerator_LIST}."
+                f"accelerator_name must be one of {intern_accelerator_LIST}."
                 + " Value '{accelerator_name}' is not supported"
             )
 
     # 2. If no override, detect which accelerator to use automatically
     if accelerator_name is None:
-        if accelerator_name is None:
-            try:
-                import torch_npu  # noqa: F401,F811 # type: ignore
+        try:
+            import torch_npu  # noqa: F401,F811 # type: ignore
 
-                accelerator_name = "npu"
-            except (ImportError, ModuleNotFoundError):
-                pass
-        if accelerator_name is None:
-            accelerator_name = "cuda"
+            accelerator_name = "npu"
+        except (ImportError, ModuleNotFoundError):
+            pass
+    if accelerator_name is None:
+        accelerator_name = "cuda"
 
     # 3. Set internlm_accelerator accordingly
     if accelerator_name == "cuda":

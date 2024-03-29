@@ -7,7 +7,6 @@ from typing import Optional
 import torch
 from torch import nn
 
-from internlm.accelerator import internlm_accelerator
 from internlm.core.context import ParallelMode
 from internlm.core.context.parallel_context import global_context as gpc
 from internlm.core.naive_amp import set_fp32_attr_to_module
@@ -24,7 +23,7 @@ from internlm.model.utils import (
 )
 from internlm.solver.activation_checkpoint import activation_checkpoint
 from internlm.solver.pipeline_utils import partition_uniform
-from internlm.utils.common import filter_kwargs
+from internlm.utils.common import filter_kwargs, get_current_device
 from internlm.utils.logger import get_logger
 from internlm.utils.registry import MODEL_INITIALIZER
 
@@ -121,7 +120,7 @@ class PackedFlashBaseLayer1D(nn.Module):
         self.num_experts = num_experts
         ep_size = gpc.get_world_size(ParallelMode.EXPERT)
         if num_experts <= 1:  # dense, not MoE
-            if use_swiglu or not use_flash_attn:
+            if use_swiglu or not gpc.config.use_cuda_flash_attn:
                 mlp_cls = get_mlp_cls(self.tp_mode)
                 self.mlp = mlp_cls(
                     hidden_size,
@@ -187,7 +186,7 @@ class PackedFlashBaseLayer1D(nn.Module):
                     if self.use_scaled_init and "w2" in name:
                         scaled_init_method_normal(sigma=0.006, num_layers=self.layer_idx + 1)(param.data)
                     else:
-                        normal_(std=0.006 if "w1" in name or "w2" in name else 0.0015)(param.data)
+                        normal_(std=0.006 if "w1" in name or "w3" in name else 0.0015)(param.data)
                 else:
                     if self.use_scaled_init and "fc1" not in name:
                         scaled_init_method_normal(sigma=0.006, num_layers=self.layer_idx + 1)(param.data)
@@ -334,7 +333,7 @@ class PackedFlashInternLm1D(nn.Module):
             head_cls = ScaleColumnParallelLinear
 
         if first:
-            if embed_split_hidden or not use_flash_attn:
+            if embed_split_hidden or not gpc.config.use_cuda_flash_attn:
                 self.embedding = Embedding1D(num_embeddings=vocab_size, embedding_dim=hidden_size)
             else:
                 from flash_attn.modules.embedding import ParallelGPT2Embeddings
@@ -413,8 +412,6 @@ class PackedFlashInternLm1D(nn.Module):
 
         if cu_seqlens is not None:
             cu_seqlens = cu_seqlens.squeeze(0)
-            hidden_states = hidden_states.squeeze(0)  # If cu_seqlens is passed in，it indicated a packed state，
-            # the batch dimension with a size of 1 should be directly squeezed off.
 
         if indexes is not None:
             assert len(indexes) == 1
@@ -440,11 +437,7 @@ class PackedFlashInternLm1D(nn.Module):
         if hasattr(self, "norm"):
             hidden_states = self.norm(hidden_states.float())
         if hasattr(self, "head"):
-            # Evaluation
-            if hidden_states.ndim == 3:
-                hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
-            else:  # Training
-                hidden_states = self.head(hidden_states, gather_dim=0, tp_mode=self.tp_mode)
+            hidden_states = self.head(hidden_states, gather_dim=1, tp_mode=self.tp_mode)
 
         if not self.parallel_output and gpc.is_pipeline_last_stage():
             hidden_states = gather_forward_split_backward(hidden_states, ParallelMode.TENSOR, dim=-1)
@@ -461,7 +454,7 @@ def _build_generic_model_1d(num_layers, num_chunks, **kwargs):
         device (Optional[Union[str, torch.device]]): The device will be used. internlm_accelerator.device() by default.
 
     """
-    device = internlm_accelerator.device()
+    device = get_current_device()
     pipeline_size = gpc.get_world_size(ParallelMode.PIPELINE)
     pipeline_rank = gpc.get_local_rank(ParallelMode.PIPELINE)
 

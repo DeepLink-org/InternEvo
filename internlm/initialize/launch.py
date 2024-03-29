@@ -9,7 +9,7 @@ from typing import Dict, Union
 
 import torch
 
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import Config
 from internlm.core.context import global_context as gpc
 from internlm.core.context.process_group_initializer import ParallelMode
@@ -34,6 +34,7 @@ else:
     get_numa = True
 
 logger = get_logger(__file__)
+internlm_accelerator = get_accelerator()
 
 
 def get_default_parser():
@@ -169,7 +170,7 @@ def args_sanity_check():
         data._add_item("use_packed_dataset", True)
 
     if "fixed_random_dataset_seqlen" not in data:
-        data._add_item("fixed_random_dataset_seqlen", False)
+        data._add_item("fixed_random_dataset_seqlen", True)
 
     if gpc.is_rank_for_log():
         logger.info("+" * 15 + " Data Info " + "+" * 15)  # pylint: disable=W1201
@@ -320,11 +321,30 @@ def args_sanity_check():
     # process the model config
     if "use_flash_attn" not in gpc.config.model:
         gpc.config.model._add_item("use_flash_attn", True)
-    # TODO by ht: get accelerator type
-    # for GPU accelerator
-    assert (
-        gpc.config.model.use_flash_attn == gpc.config.data.use_packed_dataset
-    ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
+    gpc.config["use_cuda_flash_attn"] = False
+    if gpc.config.model.use_flash_attn and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        gpc.config["use_cuda_flash_attn"] = True
+
+    # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
+    # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
+    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
+        assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
+    else:
+        assert (
+            gpc.config.use_cuda_flash_attn == gpc.config.data.use_packed_dataset
+        ), "use_packed_dataset should be set same value as use_flash_attn when accelerator type is GPU"
+
+    old_parallel_output = gpc.config.model.get("parallel_output", None)
+    # Try to change user setting
+    if not gpc.config.use_cuda_flash_attn:
+        gpc.config.model.update({"parallel_output": False})
+        if old_parallel_output is True and gpc.is_rank_for_log():
+            logger.warning(
+                "'parallel_output' is converted from 'True' to 'False'."
+                "Because 'parallel_output' only support by FlashCrossEntropyLoss."
+                "Please make sure you are using flash attention in cuda device."
+            )
 
     if "MoE" in gpc.config.get("model_type", "INTERNLM"):
         if "num_experts" not in model:
@@ -343,10 +363,6 @@ def args_sanity_check():
     # process the parallel config
     if "sequence_parallel" not in gpc.config.parallel:
         gpc.config.parallel._add_item("sequence_parallel", False)
-    else:
-        assert not (
-            gpc.config.parallel.sequence_parallel is True and gpc.config.model.use_flash_attn is False
-        ), "sequence parallel does not support use_flash_attn=False"
 
     # set default value for tensor parallel
     if isinstance(gpc.config.parallel["tensor"], int):
@@ -491,10 +507,6 @@ def launch(
         # if local rank is not given, calculate automatically
         gpc.set_device(local_rank)
 
-    # set the number of processes running on the same node
-    gpc.detect_num_processes_on_current_node()
-
-    internlm_accelerator.synchronize()
     gpc.set_seed(seed)
 
     warmup_process_group()
@@ -603,6 +615,7 @@ def initialize_distributed_env(
         master_port (str): The master port for distributed training. 8888 by default.
         seed (int, optional): Specified random seed for every process. 1024 by default.
     """
+    backend = internlm_accelerator._communication_backend_name
 
     # close automatic garbage collection
     gc.disable()

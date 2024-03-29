@@ -9,12 +9,16 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.distributed import ProcessGroup
 
-from internlm.accelerator import get_accelerator, internlm_accelerator
+from internlm.accelerator import AcceleratorType, get_accelerator
 from internlm.core.context import global_context as gpc
 from internlm.utils.logger import get_logger
 
-if internlm_accelerator is None:
-    internlm_accelerator = get_accelerator()
+try:
+    import fused_dense_lib as fused_dense_cuda
+except (ModuleNotFoundError, ImportError):
+    print("Import fused_dense_lib failed!")
+
+internlm_accelerator = get_accelerator()
 
 custom_bwd = internlm_accelerator.return_custom_bwd()
 custom_fwd = internlm_accelerator.return_custom_fwd()
@@ -33,15 +37,17 @@ class ReduceScatterFunc(torch.autograd.Function):
     """Reduce scatter the input from the sequence parallel region and concatenate."""
 
     @staticmethod
-    def forward(ctx, input_: Tensor, process_group: ProcessGroup) -> Tensor:
+    def forward(ctx, input_: Tensor, process_group: ProcessGroup, reduce_dim: int = 0) -> Tensor:
         ctx.process_group = process_group
-        output, _ = reduce_scatter_raw(input_, process_group)
+        ctx.reduce_dim = reduce_dim
+        output, _ = reduce_scatter_raw(input_, process_group, reduce_dim=reduce_dim)
         return output
 
     @staticmethod
     def backward(ctx, grad_output: Tensor):
-        grad_input, _ = all_gather_raw(grad_output, ctx.process_group)
-        return grad_input, None
+        gather_dim = ctx.reduce_dim
+        grad_input, _ = all_gather_raw(grad_output, ctx.process_group, gather_dim=gather_dim)
+        return grad_input, None, None
 
 
 # Supports autograd, but does not support async
@@ -191,21 +197,23 @@ def reduce_scatter_raw(
     process_group: ProcessGroup,
     op=dist.ReduceOp.SUM,
     async_op: bool = False,
+    reduce_dim: int = 0,
     memory_pool_allocator: Callable = None,
 ):
     world_size = dist.get_world_size(process_group)
-    assert input_.shape[0] % world_size == 0
+    assert input_.shape[reduce_dim] % world_size == 0
 
     if world_size <= 1:
         return input_, None
 
+    shape_list = list(input_.shape)
+    shape_list[reduce_dim] = shape_list[reduce_dim] // world_size
+
     if memory_pool_allocator is not None:
-        size = (input_.shape[0] // world_size, *input_.shape[1:])
-        output = memory_pool_allocator(size)
+        output = memory_pool_allocator(tuple(shape_list))
     else:
         output = torch.empty(
-            input_.shape[0] // world_size,
-            *input_.shape[1:],
+            shape_list,
             dtype=input_.dtype,
             device=input_.device,
         ).contiguous()
@@ -287,10 +295,8 @@ class FusedDenseFunc(torch.autograd.Function):
         sequence_parallel = ctx.sequence_parallel
         gather_dim = ctx.gather_dim
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -318,8 +324,12 @@ class FusedDenseFunc(torch.autograd.Function):
                 )
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(
+                        grad_input, process_group, async_op=True, reduce_dim=1
+                    )
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -406,10 +416,8 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         process_group = ctx.process_group
         sequence_parallel = ctx.sequence_parallel
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -433,8 +441,12 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
                 )
             grad_input = grad_input.reshape(*batch_shape, grad_input.shape[-1])
             if process_group is not None:
-                reduce_fn = reduce_scatter_raw if sequence_parallel else all_reduce_raw
-                grad_input, handle_grad_input = reduce_fn(grad_input, process_group, async_op=True)
+                if sequence_parallel:
+                    grad_input, handle_grad_input = reduce_scatter_raw(
+                        grad_input, process_group, async_op=True, reduce_dim=1
+                    )
+                else:
+                    grad_input, handle_grad_input = all_reduce_raw(grad_input, process_group, async_op=True)
         else:
             grad_input = None
         if ctx.needs_input_grad[1]:
@@ -509,10 +521,8 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         module = ctx.module
         communicator = ctx.communicator
 
-        if gpc.config.model.use_flash_attn:
-            import fused_dense_lib as fused_dense_cuda
-
-        if gpc.config.model.use_flash_attn and ctx.is_using_cuda:
+        if gpc.config.use_cuda_flash_attn:
+            assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
             backward_func = linear_bias_wgrad_torch
@@ -587,7 +597,7 @@ def fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU) and dtype_eligible
     return FusedDenseFunc.apply(
         x,
         weight,
@@ -612,7 +622,7 @@ def megatron_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU) and dtype_eligible
     return MegatronFusedDenseFunc.apply(
         x,
         weight,
@@ -636,7 +646,7 @@ def isp_fused_dense_func(
     dtype_eligible = x.dtype in [torch.float16, torch.bfloat16] or (
         x.dtype == torch.float32 and torch.is_autocast_enabled()
     )
-    is_using_cuda = x.is_cuda and weight.is_cuda and (bias is None or bias.is_cuda) and dtype_eligible
+    is_using_cuda = (internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU) and dtype_eligible
     return ISPFusedDenseFunc.apply(
         x,
         weight,

@@ -10,11 +10,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.testing import assert_close
 
 import internlm
-from internlm.accelerator import internlm_accelerator
+from internlm.accelerator import get_accelerator
 from internlm.core.communication.utils import ParamAsyncBcastHandler
 from internlm.core.context.parallel_context import Config, ParallelMode
 from internlm.solver.optimizer import HybridZeroOptimizer
 from internlm.utils.common import get_current_device
+
+internlm_accelerator = get_accelerator()
 
 
 class MlpModel(nn.Module):
@@ -80,6 +82,7 @@ config = Config(
             reduce_bucket_size=512 * 1024 * 1024,
             clip_grad_norm=1.0,
         ),
+        use_cuda_flash_attn=True,
     )
 )
 
