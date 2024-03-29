@@ -73,7 +73,7 @@ def initialize_llm_logger(start_time: str):
 
 
 def main(args):
-    enable_pytorch_expandable_segments()
+    # enable_pytorch_expandable_segments()
 
     # init setting
     skip_batches = gpc.config.data.skip_batches
