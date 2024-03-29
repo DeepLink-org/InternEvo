@@ -8,6 +8,7 @@ from functools import partial
 
 import torch.distributed as dist
 
+import deeplink_ext.patch_internlm
 import internlm
 from internlm.checkpoint import CheckpointManager
 from internlm.core.context import ParallelMode

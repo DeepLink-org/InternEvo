@@ -46,7 +46,8 @@ def get_gqa_attn_cls(use_flash_attn, tp_mode, causal, softmax_scale, dropout, se
         else:
             raise NotImplementedError(f"Unsupport device type: {device_backend} for flash attention")
     else:
-        inner_attn_cls, inner_cross_attn_cls = SelfAttention, CrossAttention
+        from flash_attn.modules.mha import FlashSelfAttention, FlashCrossAttention
+        inner_attn_cls, inner_cross_attn_cls = FlashSelfAttention, FlashCrossAttention
         inner_attn = inner_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
 
     inner_cross_attn = inner_cross_attn_cls(causal=causal, softmax_scale=softmax_scale, attention_dropout=dropout)
