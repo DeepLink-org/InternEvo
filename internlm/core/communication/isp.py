@@ -23,9 +23,12 @@ class ISPCommModelConfig:
     """
 
     dtype: torch.dtype = torch.half
-    device: torch.device = get_current_device()
     activation_checkpointing: float = 0.0
     module_shapes: Dict[str, torch.Size] = None
+
+    def __init__(self):
+        self.device: torch.device = get_current_device()
+
 
 
 class MemoryPool:

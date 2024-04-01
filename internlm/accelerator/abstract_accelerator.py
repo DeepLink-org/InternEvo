@@ -94,8 +94,6 @@ def get_accelerator():
             try:
                 import torch_dipu  # noqa # pylint: disable=W0611
                 import deeplink_ext
-                import torch
-                torch.cuda.set_device(int(os.environ["RANK"]) % torch.cuda.device_count())
             except (ImportError, ModuleNotFoundError):
                 raise ValueError("DIPU_Accelerator requires torch_dipu and deeplink_ext, which is not installed on this system.")
             pass
@@ -110,8 +108,6 @@ def get_accelerator():
         try:
             import torch_dipu  # noqa: F401,F811 # type: ignore
             import deeplink_ext
-            import torch
-            torch.cuda.set_device(int(os.environ["RANK"]) % torch.cuda.device_count())
             accelerator_name = "dipu"
         except (ImportError, ModuleNotFoundError):
             pass
