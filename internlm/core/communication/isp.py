@@ -23,12 +23,15 @@ class ISPCommModelConfig:
     def __init__(
         self,
         dtype: torch.dtype = torch.half,
-        device: torch.device = get_current_device,
+        device: torch.device = None,
         activation_checkpointing: float = 0.0,
         module_shapes: Dict[str, torch.Size] = None,
     ) -> None:
         self.dtype = dtype
-        self.device = device
+        if device is None:
+            self.device = get_current_device()
+        else:
+            self.device = device
         self.activation_checkpointing = activation_checkpointing
         self.module_shapes = module_shapes
 
