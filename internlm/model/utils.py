@@ -295,7 +295,7 @@ class FusedDenseFunc(torch.autograd.Function):
         sequence_parallel = ctx.sequence_parallel
         gather_dim = ctx.gather_dim
 
-        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend:
+        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend():
             assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
@@ -416,7 +416,7 @@ class MegatronFusedDenseFunc(torch.autograd.Function):
         process_group = ctx.process_group
         sequence_parallel = ctx.sequence_parallel
 
-        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend:
+        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend():
             assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
@@ -521,7 +521,7 @@ class ISPFusedDenseFunc(torch.autograd.Function):
         module = ctx.module
         communicator = ctx.communicator
 
-        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend:
+        if gpc.config.use_cuda_flash_attn and AcceleratorType.GPU == get_accelerator().get_accelerator_backend():
             assert ctx.is_using_cuda, "CUDA Flash Attention only support GPU device"
             backward_func = fused_dense_cuda.linear_bias_wgrad
         else:
