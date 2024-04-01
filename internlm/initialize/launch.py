@@ -327,9 +327,10 @@ def args_sanity_check():
         gpc.config["use_cuda_flash_attn"] = True
 
     # for NPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
+    # for DIPU accelerator supports: 1）FA-True + Packed-False 2) FA-False + Packed-False
     # for GPU accelerator supports: 1）FA-True + Packed-True 2) FA-False + Packed-False
-    if internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
-        assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU accelerator"
+    if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+        assert gpc.config.data.use_packed_dataset is False, "packed data is not supported for NPU/DIPU accelerator"
     else:
         assert (
             gpc.config.use_cuda_flash_attn == gpc.config.data.use_packed_dataset

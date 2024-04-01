@@ -311,7 +311,6 @@ def main(args):
 if __name__ == "__main__":
     args = parse_args()
     hostname = socket.gethostname()
-    # import pdb;pdb.set_trace()
 
     # initialize distributed environment
     initialize_distributed_env(config=args.config, launcher=args.launcher, master_port=args.port, seed=args.seed)

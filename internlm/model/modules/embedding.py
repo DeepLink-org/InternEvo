@@ -96,6 +96,7 @@ def _torch_apply_rotary_func(
 
 def get_rotary_func():
     if gpc.config.use_cuda_flash_attn:
+        return rotary_emb.apply_rotary
         # device_backend = internlm_accelerator.get_accelerator_backend()
         # if device_backend == AcceleratorType.DIPU:
         #     from deeplink_ext.cpp_extensions import apply_rotary as apply_rotary
@@ -117,7 +118,7 @@ def get_rotary_func():
         #         return out1, out2
         #     return _dipu_apply_rotary_func
         # else:
-            return rotary_emb.apply_rotary
+            # return rotary_emb.apply_rotary
     else:
         return _torch_apply_rotary_func
 

@@ -850,7 +850,7 @@ class MHA(nn.Module):
 
         context = rearrange(context, "b h d -> b (h d)")  # recover the shape
         # restore bsz dimension
-        if internlm_accelerator.get_accelerator_backend() == [AcceleratorType.GPU, AcceleratorType.DIPU]:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             context = context.unsqueeze(0)
 
         out = self.out_proj(context)
