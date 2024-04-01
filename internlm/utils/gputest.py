@@ -94,7 +94,7 @@ def get_gpu_temperature():
     except AssertionError:
         gpu_id = -1
 
-    if GPUtil is not None and gpu_id >= 0:
+    if GPUtil is not None and gpu_id >= 0 and internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
         gpus = GPUtil.getGPUs()
         gpu_temperature = gpus[gpu_id].temperature
     else:
