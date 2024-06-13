@@ -414,11 +414,11 @@ class MHA(nn.Module):
         if inference_params is None:
             kv = torch.concat([k.unsqueeze(2), v.unsqueeze(2)], dim=2)
             # for packed data, batch dimension with a size of 1 should be directly squeezed off.
-            if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+            if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
                 q = q.squeeze(0)
                 kv = kv.squeeze(0)
             # since torch_npu only supports fa with no packed data currently, qkv should be unpacked
-            elif internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+            elif internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
                 q = unpack_qkv_before_attn(q, kwargs["cu_seqlens"])
                 kv = unpack_qkv_before_attn(kv, kwargs["cu_seqlens"])
 
@@ -454,10 +454,10 @@ class MHA(nn.Module):
         else:
             raise RuntimeError("Not support this right now")
 
-        if internlm_accelerator.get_accelerator_backend() == AcceleratorType.GPU:
+        if internlm_accelerator.get_accelerator_backend() in [AcceleratorType.GPU, AcceleratorType.DIPU]:
             context = rearrange(context, "s h d -> s (h d)")  # recover the shape
             context = context.unsqueeze(0)  # restore bsz dimension
-        elif internlm_accelerator.get_accelerator_backend() in [AcceleratorType.NPU, AcceleratorType.DIPU]:
+        elif internlm_accelerator.get_accelerator_backend() == AcceleratorType.NPU:
             context = rearrange(context, "b s h d -> b s (h d)")  # recover the shape
             context = pack_output_after_attn(context, kwargs["cu_seqlens"])
 
