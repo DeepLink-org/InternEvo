@@ -73,6 +73,16 @@ def load_llama_pretrained_weights(folder, model):
 
 def load_hf_llama_pretrained_weights(folder, model):
     """NOTE: when loading huggingface's llama pretrained weights, you should set `adapt_hf=True` in your config."""
+    rank = gpc.get_global_rank()
+    local_rank = os.environ.get("LOCAL_RANK", None)
+    assert local_rank is not None
+    local_rank = int(local_rank)
+    if local_rank >= 4:
+        print(f"rank {rank} sleep 120s to avoid OOM", flush=True)
+        import time
+        time.sleep(120)
+        print(f"rank {rank} sleep done", flush=True)
+    print(f"rank {rank} loading hf llama", flush=True)
     assert folder is not None, "Please specify the folder of the pretrained model"
     if gpc.is_rank_for_log():
         logger.info(f"Loading pretrained model from {folder}")
@@ -185,6 +195,7 @@ def load_hf_llama_pretrained_weights(folder, model):
             f"tp:{gpc.get_local_rank(ParallelMode.TENSOR)}, pp:{pp_rank}"
         )
     internlm_accelerator.empty_cache()
+    print(f"rank {rank} loading hf llama done", flush=True)
 
 
 def load_internlm_with_dynamic_parallel_size(folder, model):
