@@ -61,10 +61,10 @@ def try_import_fused_rotary() -> Tuple[Union[None, Callable], Union[None, Callab
 
             return None, None, rotary_emb.apply_rotary
         elif device_backend is AcceleratorType.DIPU:
-            from deeplink_ext.internevo_ops import (
+            from deeplink_ext.interntrain_ops import (
                 ApplyRotaryEmb as DeeplinkApplyRotaryEmb,
             )
-            from deeplink_ext.internevo_ops import (
+            from deeplink_ext.interntrain_ops import (
                 ApplyRotaryEmbQKV_ as DeeplinkApplyRotaryEmbQKV_,
             )
 
