@@ -155,6 +155,12 @@ def try_import_FusedAdamW():
                     "accuracy issues and is not supported yet. Please note this!"
                 )
             # return adam_extra_kwargs, torch_npu.optim.NpuFusedAdamW
+        elif backend is AcceleratorType.DIPU:
+            adam_extra_kwargs["fused"] = True
+
+            if gpc.is_rank_for_log():
+                logger.warning("Use Deeplink AdamW, Please note this!")
+            return adam_extra_kwargs, torch.optim.AdamW
     except (ModuleNotFoundError, ImportError):
         pass
 

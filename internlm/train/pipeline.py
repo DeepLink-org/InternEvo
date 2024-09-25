@@ -313,6 +313,7 @@ def initialize_optimizer(model: Union[nn.Module, nn.ModuleList], isp_communicato
         lr=adam_cfg.lr,
         betas=(adam_cfg.adam_beta1, adam_cfg.adam_beta2),
         eps=adam_cfg.adam_eps,
+        amsgrad=True,
         **adam_extra_kwargs,
     )
 
