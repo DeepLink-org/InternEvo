@@ -22,7 +22,7 @@ def try_import_RMSNorm():
     try:
         device_backend = internlm_accelerator.get_accelerator_backend()
         if device_backend == AcceleratorType.DIPU:
-            from deeplink_ext.internevo_ops import MixedFusedRMSNorm as RMSNorm
+            from deeplink_ext.interntrain_ops import MixedFusedRMSNorm as RMSNorm
 
             if gpc.is_rank_for_log():
                 logger.warning("Use Deeplink MixedFusedRMSNorm, Please note this!")
@@ -138,8 +138,8 @@ def try_import_FusedAdamW():
     backend = internlm_accelerator.get_accelerator_backend()
     try:
         if backend is AcceleratorType.GPU:
-            if torch.__version__ >= "2.1.0":
-                adam_extra_kwargs["fused"] = True
+            # if torch.__version__ >= "2.1.0":
+            #     adam_extra_kwargs["fused"] = True
 
             if gpc.is_rank_for_log():
                 logger.warning(

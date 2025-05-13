@@ -10,7 +10,8 @@ class AcceleratorType(enum.Enum):
     NPU = 2
     CPU = 3
     DIPU = 4
-    OTHER = 5
+    PTPU = 5
+    OTHER = 6
 
 
 internlm_accelerator = None
@@ -81,7 +82,7 @@ def get_accelerator():
 
     accelerator_name = None
     # 1. Detect whether there is override of DeepSpeed accelerators from environment variable.
-    intern_accelerator_LIST = ["cuda", "npu", "dipu"]
+    intern_accelerator_LIST = ["cuda", "npu", "dipu", "ptpu"]
     if "INTERNLM_ACCELERATOR" in os.environ:
         accelerator_name = os.environ["INTERNLM_ACCELERATOR"]
         if accelerator_name == "npu":
@@ -89,6 +90,12 @@ def get_accelerator():
                 import torch_npu  # noqa # pylint: disable=W0611
             except (ImportError, ModuleNotFoundError):
                 raise ValueError("NPU_Accelerator requires torch_npu, which is not installed on this system.")
+            pass
+        elif accelerator_name == "ptpu":
+            try:
+                import torch_ptpu
+            except (ImportError, ModuleNotFoundError):
+                raise ValueError("PTPU_Accelerator requires torch_ptpu, which is not installed on this system.")
             pass
         elif accelerator_name == "dipu":
             try:
@@ -122,6 +129,13 @@ def get_accelerator():
         except (ImportError, ModuleNotFoundError):
             pass
     if accelerator_name is None:
+        try:
+            import torch_ptpu
+
+            accelerator_name = "ptpu"
+        except (ImportError, ModuleNotFoundError):
+            pass
+    if accelerator_name is None:
         accelerator_name = "cuda"
 
     # 3. Set internlm_accelerator accordingly
@@ -137,5 +151,10 @@ def get_accelerator():
         from .dipu_accelerator import DIPU_Accelerator
 
         internlm_accelerator = DIPU_Accelerator()
+
+    elif accelerator_name == "ptpu":
+        from .ptpu_accelerator import PTPU_Accelerator
+
+        internlm_accelerator = PTPU_Accelerator()
 
     return internlm_accelerator

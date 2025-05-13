@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 
+import torch
+import torch_ptpu
 import logging
 import socket
 import time

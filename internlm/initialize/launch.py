@@ -606,7 +606,7 @@ def initialize_distributed_env(
     master_port: int = 8888,
     seed: int = 1024,
     args_check=True,
-    backend: str = "nccl",
+    backend: str = "pccl",
 ):
     """
     Initialize distributed environment for distributed training.
