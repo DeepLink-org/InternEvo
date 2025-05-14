@@ -111,7 +111,7 @@ class PTPU_Accelerator(Accelerator):
         """
         Sets the seed for generating random numbers for the current GPU.
         """
-        return torch.ptpu.manual_seed(seed)
+        return torch.manual_seed(seed)
 
     def manual_seed_all(self, seed):
         """
